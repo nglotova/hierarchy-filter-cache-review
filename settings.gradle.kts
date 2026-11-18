@@ -5,4 +5,4 @@ plugins {
 
 rootProject.name = "dfs-hierarchy-filter"
 
-include("hierarchy")
+include("hierarchy", "code-review")
