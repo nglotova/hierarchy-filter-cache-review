@@ -38,7 +38,7 @@ Recommended fix: replace the hand-rolled map with a thin wrapper over [Caffeine]
 **Impact.** At hundreds of writes/s over a growing key space (per user, per issue, per worklog), 300 new keys/s is about 26 million entries a day. Each entry costs roughly 60 bytes before the key and value (a `ConcurrentHashMap.Node`, the `CacheEntry`, and the table slot). With modest keys and values that is several GB a day. Before the actual `OutOfMemoryError`, the old generation fills up, GC pauses get longer, and p99 latency degrades. Then Kubernetes OOM-kills the pod at its memory limit. The pod restarts with a cold cache, which triggers finding 2 across every key at once. Even with a bounded key space, expired values stay on the heap until they happen to be overwritten.
 
 **Fix.** Bound the cache by entry count or by weight (`maximumSize` / `maximumWeight`), using an eviction policy that keeps the hot set: Caffeine's W-TinyLFU beats plain LRU on hit rate. Remove expired entries proactively (Caffeine uses a timer wheel with amortised O(1) cost). In a hand-rolled version, at minimum:
-- remove expired entries on read with `cache.remove(key, entry)`. The two-argument form only removes that exact entry, so a fresh value put concurrently survives;
+- remove expired entries on read with `cache.remove(key, entry)`. The two-argument form removes the entry only if the map still holds an equal one, so a fresh value put concurrently survives. "Equal" here means `CacheEntry.equals`; with a non-data class (finding 11) that is identity;
 - add a periodic sweep;
 - add a size bound.
 
@@ -56,7 +56,7 @@ This isn't atomic. While a key is missing (cold start, eviction, or every 60 s w
 
 **Fix.** Offer `get(key, loader)` with per-key single-flight loading: only one caller loads a key, and the others wait for its result.
 - Caffeine's `Cache.get(key, mappingFunction)` does this atomically.
-- For slow loads, prefer `AsyncCache` / `AsyncLoadingCache`, which store a `CompletableFuture`. A synchronous compute holds a `ConcurrentHashMap` bin lock for the whole load. That blocks unrelated keys hashed to the same bin, and touching the same cache from inside the loader fails with `IllegalStateException: Recursive update`.
+- For slow loads, prefer `AsyncCache` / `AsyncLoadingCache`, which store a `CompletableFuture`. A synchronous compute holds a `ConcurrentHashMap` bin lock for the whole load. That blocks unrelated keys hashed to the same bin. A loader that loads the same key again throws `IllegalStateException: Recursive update`, and loading other keys from inside a loader isn't supported either: whether it works depends on how the keys share bins.
 - For hot keys, use `refreshAfterWrite`. Readers keep getting the current value while one background reload runs, so there is no latency cliff at expiry.
 
 ### 3. Wall-clock time for TTL (High)

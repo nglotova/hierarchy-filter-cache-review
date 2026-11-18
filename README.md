@@ -1,4 +1,4 @@
-# dfs-hierarchy-filter
+# hierarchy-filter-cache-review
 
 Take-home assessment for Tempo, in two parts:
 
@@ -7,7 +7,7 @@ Take-home assessment for Tempo, in two parts:
 
 ## Running
 
-Requires JDK 21. If it isn't installed, Gradle downloads it automatically.
+Needs a JDK installed to start Gradle. The JDK 21 used to compile and test the code is downloaded automatically if it isn't installed.
 
 ```bash
 ./gradlew test                  # both modules
