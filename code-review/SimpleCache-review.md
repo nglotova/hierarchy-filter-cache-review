@@ -144,28 +144,29 @@ A nested class in Kotlin is public by default, so `SimpleCache.CacheEntry` becom
 
 ## Recommended implementation
 
-Caffeine already covers all of the above under this load profile: bounded W-TinyLFU eviction, amortised O(1) expiration, per-key single-flight loading, asynchronous refresh, a pluggable ticker and statistics. Reimplementing those correctly (a concurrent eviction policy, a timer wheel, single-flight futures) is a large and bug-prone task for no product benefit. [`ItemCache.kt`](src/main/kotlin/ItemCache.kt) is the suggested replacement:
+Caffeine already covers all of the above under this load profile: bounded W-TinyLFU eviction, amortised O(1) expiration, per-key single-flight loading, asynchronous refresh, a pluggable ticker and statistics. Reimplementing those correctly (a concurrent eviction policy, a timer wheel, single-flight futures) is a large and bug-prone task for no product benefit. [`ItemCache.kt`](src/main/kotlin/ItemCache.kt) is the suggested replacement. The core of it (excerpt; see the file for the full class):
 
 ```kotlin
-class ItemCache<K : Any, V : Any>(
-  ttl: Duration = Duration.ofMinutes(1),
+class ItemCache<K : Any, V : Any>(                 // non-null keys and values (finding 4)
+  ttl: Duration = Duration.ofMinutes(1),          // configurable (finding 8)
   maximumSize: Long,
-  ticker: Ticker = Ticker.systemTicker(),   // monotonic (System.nanoTime)
+  ticker: Ticker = Ticker.systemTicker(),          // monotonic, fake in tests (findings 3, 8)
   executor: Executor = ForkJoinPool.commonPool(),
 ) {
   private val cache: Cache<K, V> = Caffeine.newBuilder()
     .expireAfterWrite(ttl)
-    .maximumSize(maximumSize)
+    .maximumSize(maximumSize)      // finding 1
     .ticker(ticker)
     .executor(executor)
-    .recordStats()
-    .build()
+    .recordStats()                 // finding 10
+    .build<K, V>()
 
-  fun get(key: K, loader: (K) -> V): V = cache.get(key) { loader(it) }  // single-flight per key
-  fun getIfPresent(key: K): V? = cache.getIfPresent(key)
-  fun put(key: K, value: V) = cache.put(key, value)
-  fun invalidate(key: K) = cache.invalidate(key)
-  // estimatedSize(), stats(), ...
+  // Single-flight: concurrent callers for the same missing key share one load (findings 2, 6).
+  fun get(key: K, loader: (K) -> V): V = cache.get(key) { loader(it) }
+
+  fun invalidate(key: K) = cache.invalidate(key)  // finding 5
+
+  // ...
 }
 ```
 
